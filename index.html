@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ET Success Probability Calculator</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    :root {
+      --bg: #111827;
+      --bg-alt: #1f2937;
+      --border: #374151;
+      --text: #f9fafb;
+      --text-muted: #9ca3af;
+      --primary: #3b82f6;
+      --primary-hover: #2563eb;
+    }
+    body {
+      margin: 0;
+      font-family: system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+    }
+    .container {
+      max-width: 820px;
+      margin: auto;
+      padding: 1rem;
+    }
+    h1, h2 {text-align:center;margin:.5rem 0;}
+    label {display:block;margin:.75rem 0 .25rem;}
+    input[type=range] {width:100%;}
+    .slider-row {display:flex;align-items:center;gap:.75rem;}
+    .slider-row span {white-space:nowrap;width:3.5rem;text-align:right;}
+    .section {border:1px solid var(--border);background:var(--bg-alt);padding:1rem;border-radius:.5rem;margin-bottom:1rem;}
+    button {background:var(--primary);color:#fff;border:none;padding:.6rem 1rem;border-radius:.5rem;font-size:1rem;cursor:pointer;}
+    button:hover{background:var(--primary-hover);}    
+    #result {font-size:1.25rem;font-weight:600;margin-top:1rem;text-align:center;}
+    table {width:100%;border-collapse:collapse;margin-top:1rem;}
+    th,td {border:1px solid var(--border);padding:.5rem;text-align:center;}
+    th {background:var(--bg-alt);}    
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Success Probability Calculator</h1>
+
+    <div class="section">
+      <h2>Historical Success Rates</h2>
+      <canvas id="rateChart" height="250"></canvas>
+    </div>
+
+    <div class="section" id="weights">
+      <h2>Factor Weights (%)</h2>
+      <div id="weightSliders"></div>
+    </div>
+
+    <div class="section" id="values">
+      <h2>Factor Values</h2>
+      <div id="valueSliders"></div>
+    </div>
+
+    <div style="text-align:center;">
+      <button id="runBtn">Run Analysis</button>
+    </div>
+
+    <div id="result"></div>
+    <div id="breakdown"></div>
+  </div>
+
+<script>
+// --------- Data for historical bar chart ---------
+const historicalData = {
+  labels: ['age','boc','deductions','disab','eqpay','nmw','others','pid','race','redund_pay','relig','sex','sex_orientation','ud','wt'],
+  datasets: [{
+    label: 'Success Rate %',
+    data: [19.55,66.18,67.31,26.04,46.45,54.91,56.49,44.69,28.41,51.95,55.17,31.43,46.96,50.00,50.88],
+    backgroundColor: 'rgba(59,130,246,0.8)'
+  }]
+};
+const ctx = document.getElementById('rateChart').getContext('2d');
+new Chart(ctx,{type:'bar',data:historicalData,options:{responsive:true,plugins:{legend:{display:false},title:{display:false}},scales:{x:{ticks:{color:'#f9fafb'}},y:{ticks:{color:'#f9fafb'},beginAtZero:true}}}});
+
+// --------- Slider generation helpers ---------
+const factors=[
+  {id:'historical',label:'Historical',w:10,v:50,step:0.1},
+  {id:'limitation',label:'Limitation',w:30,v:70,step:1},
+  {id:'legal',label:'Legal Basis',w:30,v:80,step:1},
+  {id:'evidence',label:'Evidence',w:30,v:90,step:1}
+];
+const weightDiv=document.getElementById('weightSliders');
+const valueDiv=document.getElementById('valueSliders');
+
+factors.forEach(f=>{
+  // weight slider
+  const wRow=document.createElement('div');wRow.className='slider-row';
+  wRow.innerHTML=`<label style="flex:1;">${f.label} Weight:</label><input type="range" min="0" max="100" step="1" value="${f.w}" id="w_${f.id}"><span id="wout_${f.id}">${f.w}</span>`;
+  weightDiv.appendChild(wRow);
+  
+  // value slider
+  const vRow=document.createElement('div');vRow.className='slider-row';
+  vRow.innerHTML=`<label style="flex:1;">${f.label} Value (%):</label><input type="range" min="0" max="100" step="${f.step}" value="${f.v}" id="v_${f.id}"><span id="vout_${f.id}">${f.v}</span>`;
+  valueDiv.appendChild(vRow);
+});
+
+// live output update
+['w','v'].forEach(prefix=>{
+  factors.forEach(f=>{
+    const slider=document.getElementById(`${prefix}_${f.id}`);
+    const out=document.getElementById(`${prefix}out_${f.id}`);
+    slider.addEventListener('input',()=>out.textContent=slider.value);
+  });
+});
+
+// --------- Probability calculation helpers ---------
+const clip=p=>Math.min(Math.max(p,0.001),0.999);
+const probToLog=p=>Math.log(p/(1-p));
+const logToProb=l=>1/(1+Math.exp(-l));
+
+function normalizeWeights(ws){
+  const total=ws.reduce((a,b)=>a+b,0)||1;
+  return ws.map(w=>w/total);
+}
+
+function computeProb(vals,weights){
+  const probs=vals.map(v=>v/100).map(clip);
+  const logs=probs.map(probToLog);
+  const [wh,wl,wb,we]=normalizeWeights(weights);
+  const combined=(wh*logs[0])+(wl*logs[1])+(wb*logs[2])+(we*logs[3]);
+  return {finalProb:logToProb(combined),logs,combined,weights:[wh,wl,wb,we],probs};
+}
+
+// --------- Run analysis ---------
+const runBtn=document.getElementById('runBtn');
+runBtn.addEventListener('click',()=>{
+  const ws=factors.map(f=>+document.getElementById(`w_${f.id}`).value);
+  const vs=factors.map(f=>+document.getElementById(`v_${f.id}`).value);
+  const res=computeProb(vs,ws);
+  document.getElementById('result').textContent=`Final Success Probability: ${(res.finalProb*100).toFixed(1)}%`;
+
+  // breakdown table
+  const br=document.getElementById('breakdown');
+  br.innerHTML=`<table><tr><th>Factor</th><th>Weight (norm.)</th><th>Value %</th><th>Log‑odds</th></tr>${factors.map((f,i)=>`<tr><td>${f.label}</td><td>${res.weights[i].toFixed(3)}</td><td>${vs[i]}</td><td>${res.logs[i].toFixed(3)}</td></tr>`).join('')}<tr><td colspan="3"><strong>Combined Log‑odds</strong></td><td><strong>${res.combined.toFixed(3)}</strong></td></tr></table>`;
+});
+</script>
+</body>
+</html>
